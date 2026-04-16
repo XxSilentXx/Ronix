@@ -1,0 +1,552 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return request.auth != null && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // User profiles
+    match /users/{userId} {
+      // Allow any authenticated user to read any user profile
+      allow read: if request.auth != null;
+      // Only allow users to update/create their own profile, and only whitelisted fields
+      // Whitelisted fields: displayName, displayNameLower, email, photoURL, tokenBalance, createdAt, currentIp, ipAddresses, lastLogin, discordLinked, discordUnlinkedAt, twitchLinked, twitchUnlinkedAt, epicLinked, epicId, epicUsername, activeInsurance, battlepass, wagerEarnings, vipStatus, xpTotal
+      allow update, create: if request.auth != null && request.auth.uid == userId &&
+        request.resource.data.keys().hasOnly([
+          'displayName', 'displayNameLower', 'email', 'photoURL', 'tokenBalance', 'createdAt',
+          'currentIp', 'ipAddresses', 'lastLogin',
+          'discordLinked', 'discordUnlinkedAt',
+          'twitchLinked', 'twitchUnlinkedAt',
+          'epicLinked', 'epicId', 'epicUsername',
+          'activeInsurance', 'battlepass',
+          'wagerEarnings', 'vipStatus', 'xpTotal'
+        ]);
+      // Allow admins to update ban-related fields on any user
+      allow update: if isAdmin() &&
+        request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'isBanned', 'banDetails', 'appealStatus'
+        ]);
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      // Subcollections (add as needed)
+      match /cosmetics/{cosmeticId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      match /notifications/{notificationId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      // ...add other subcollections as needed...
+
+      // Allow access to user-specific transactions
+      match /transactions/{transactionId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow create: if request.auth != null && 
+                     request.auth.uid == userId &&
+                     request.resource.data.type == 'shop_purchase';
+      }
+    }
+    
+    // Admin Requests
+    match /adminRequests/{requestId} {
+      // Allow authenticated users to create new admin requests
+      allow create: if request.auth != null;
+      
+      // Allow users to read their own requests or admins to read any request
+      allow read, update: if request.auth != null && 
+                          (
+                            request.auth.uid == resource.data.userId || 
+                            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
+                          );
+      
+      // Only admins can delete admin requests
+      allow delete: if request.auth != null && 
+                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // Admin Notifications
+    match /admin_notifications/{notificationId} {
+      // Only admins can read admin notifications
+      allow read: if isAdmin();
+      
+      // Only the system (Cloud Functions) can create/update admin notifications
+      // This is handled by Cloud Functions with admin privileges
+      allow write: if false;
+    }
+    
+    // Wagers
+    match /wagers/{wagerId} {
+      allow read;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null && 
+                     (resource.data.hostId == request.auth.uid || 
+                      resource.data.participants.hasAny([request.auth.uid]) ||
+                      (resource.data.status == 'open' && 
+                       request.resource.data.guestId == request.auth.uid));
+      allow delete: if request.auth != null && resource.data.hostId == request.auth.uid;
+    }
+    
+    // Wager chat messages
+    match /wager_chats/{messageId} {
+      // Allow reading chat messages for a wager
+      allow read: if request.auth != null;
+      
+      // Allow creating chat messages if the user is a participant in the wager
+      // or if it's a system message
+      allow create: if request.auth != null && 
+                     (
+                       // System messages can be created
+                       request.resource.data.senderId == 'system' ||
+                       // User must be the sender
+                       (request.resource.data.senderId == request.auth.uid &&
+                        // And must be a participant in the wager
+                        exists(/databases/$(database)/documents/wagers/$(request.resource.data.wagerId)) &&
+                        (
+                          get(/databases/$(database)/documents/wagers/$(request.resource.data.wagerId)).data.hostId == request.auth.uid ||
+                          get(/databases/$(database)/documents/wagers/$(request.resource.data.wagerId)).data.guestId == request.auth.uid ||
+                          get(/databases/$(database)/documents/wagers/$(request.resource.data.wagerId)).data.participants.hasAny([request.auth.uid])
+                        )
+                       )
+                     );
+      
+      // No updates allowed for chat messages
+      allow update: if false;
+      
+      // Only allow deletion by the sender or system
+      allow delete: if request.auth != null && 
+                     (resource.data.senderId == request.auth.uid || 
+                      resource.data.senderId == 'system');
+    }
+    
+    // Parties
+    match /parties/{partyId} {
+      // Anyone can read party info
+      allow read;
+      
+      // Only authenticated users can create parties
+      allow create: if request.auth != null && 
+                     request.resource.data.leader == request.auth.uid && 
+                     request.resource.data.members.hasOnly([request.auth.uid]);
+      
+      // Party updates:
+      // - Leader can update anything
+      // - Members can update the party
+      // - Users with invites can update to accept/decline
+      allow update: if request.auth != null && 
+                     (
+                       // Leader can do anything
+                       resource.data.leader == request.auth.uid ||
+                       
+                       // Members can update
+                       resource.data.members.hasAny([request.auth.uid]) ||
+                       
+                       // Users with invites in invitedUsers can update
+                       resource.data.invitedUsers.hasAny([request.auth.uid])
+                     );
+      
+      // Only the leader can delete the party
+      allow delete: if request.auth != null && resource.data.leader == request.auth.uid;
+    }
+    
+    // Party chat messages
+    match /party_chats/{messageId} {
+      // Anyone can read party chat messages
+      allow read;
+      
+      // Only party members can create messages in the party chat
+      allow create: if request.auth != null && 
+                     exists(/databases/$(database)/documents/parties/$(request.resource.data.partyId)) &&
+                     get(/databases/$(database)/documents/parties/$(request.resource.data.partyId)).data.members.hasAny([request.auth.uid]);
+      
+      // Only the sender can update or delete their own messages
+      allow update, delete: if request.auth != null && resource.data.senderId == request.auth.uid;
+    }
+    
+    // Friendships - documents that represent a friendship between two users
+    match /friendships/{friendshipId} {
+      // Allow read if user is one of the users in the friendship
+      allow read: if request.auth != null && 
+                   (
+                     // Either the user is in the users array
+                     resource.data.users.hasAny([request.auth.uid]) || 
+                     // Or the friendshipId contains the user's ID (as a fallback)
+                     friendshipId.matches(request.auth.uid + '_.*') || 
+                     friendshipId.matches('.*_' + request.auth.uid)
+                   );
+      
+      // Allow create if user is one of the users in the friendship
+      allow create: if request.auth != null && 
+                     request.resource.data.users.hasAny([request.auth.uid]);
+      
+      // Allow update if user is one of the users in the friendship
+      allow update: if request.auth != null && 
+                     resource.data.users.hasAny([request.auth.uid]);
+      
+      // Allow delete if user is one of the users in the friendship
+      allow delete: if request.auth != null && 
+                     resource.data.users.hasAny([request.auth.uid]);
+    }
+    
+    // Friends list
+    match /friends/{userId} {
+      // Only the user can read their friends list
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      // Only the user can create or update their own friends list
+      allow create, update: if request.auth != null && request.auth.uid == userId;
+      
+      // No deletion allowed
+      allow delete: if false;
+    }
+    
+    // Friend requests (snake_case)
+    match /friend_requests/{requestId} {
+      // Allow read if user is the sender or recipient
+      allow read: if request.auth != null && 
+                   (resource.data.senderId == request.auth.uid || 
+                    resource.data.recipientId == request.auth.uid);
+      // Allow create if user is authenticated and sets themselves as the sender
+      allow create: if request.auth != null && 
+                     request.resource.data.senderId == request.auth.uid &&
+                     request.resource.data.status == 'pending';
+      // Allow update if user is the recipient (to accept/decline)
+      allow update: if request.auth != null && 
+                     (
+                       // Recipient can update to accept/decline
+                       resource.data.recipientId == request.auth.uid ||
+                       // Sender can update to cancel
+                       resource.data.senderId == request.auth.uid
+                     );
+      // Allow delete if user is the sender (to cancel) or recipient (after accepting/declining)
+      allow delete: if request.auth != null && 
+                     (resource.data.senderId == request.auth.uid || 
+                      resource.data.recipientId == request.auth.uid);
+    }
+    // Friend requests (camelCase)
+    match /friendRequests/{requestId} {
+      // Allow read if user is the sender or recipient
+      allow read: if request.auth != null && 
+                   (resource.data.senderId == request.auth.uid || 
+                    resource.data.recipientId == request.auth.uid);
+      // Allow create if user is authenticated and sets themselves as the sender
+      allow create: if request.auth != null && 
+                     request.resource.data.senderId == request.auth.uid &&
+                     request.resource.data.status == 'pending';
+      // Allow update if user is the recipient (to accept/decline)
+      allow update: if request.auth != null && 
+                     (
+                       // Recipient can update to accept/decline
+                       resource.data.recipientId == request.auth.uid ||
+                       // Sender can update to cancel
+                       resource.data.senderId == request.auth.uid
+                     );
+      // Allow delete if user is the sender (to cancel) or recipient (after accepting/declining)
+      allow delete: if request.auth != null && 
+                     (resource.data.senderId == request.auth.uid || 
+                      resource.data.recipientId == request.auth.uid);
+    }
+    
+    // Notifications
+    match /users/{userId}/notifications/{notificationId} {
+      // Allow the user to read, update, or delete their own notifications
+      allow read, update, delete: if request.auth != null && request.auth.uid == userId;
+      // Allow any authenticated user to create a notification for any user
+      allow create: if request.auth != null;
+    }
+    
+    // Tokens
+    match /tokens/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false; // Only cloud functions should write to tokens
+    }
+    
+    // Ban-related collections - Admin only access
+    match /bans/{banId} {
+      // Users can read their own ban records, admins can read all ban records
+      allow read: if request.auth != null && 
+                   (
+                     resource.data.userId == request.auth.uid ||
+                     (
+                       exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
+                     )
+                   );
+      
+      // Only admins can write ban records
+      allow write: if request.auth != null && 
+                    exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+    
+    match /ipBans/{ip} {
+      // Only admins can read and write IP ban records
+      allow read, write: if request.auth != null && 
+                          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+    
+    match /epicIdBans/{epicId} {
+      // Only admins can read and write Epic ID ban records
+      allow read, write: if request.auth != null && 
+                          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+    
+    // Appeals
+    match /appeals/{appealId} {
+      // Users can read their own appeals, admins can read all appeals
+      allow read: if request.auth != null && 
+                   (
+                     resource.data.userId == request.auth.uid ||
+                     (
+                       exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
+                     )
+                   );
+      
+      // Users can create appeals for themselves
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid;
+      
+      // Only admins can update appeals (for reviewing)
+      allow update: if request.auth != null && 
+                     exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+      
+      // No deletion of appeals allowed
+      allow delete: if false;
+    }
+    
+    // Transactions
+    match /transactions/{transactionId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == resource.data.userId || isAdmin()
+      );
+      allow create: if request.auth != null && 
+                   request.resource.data.userId == request.auth.uid &&
+                   (
+                     request.resource.data.type in ['shop_purchase', 'wager_entry', 'tip_sent', 'tip_received', 'purchase']
+                   );
+    }
+    
+    // Refund requests
+    match /refund_requests/{requestId} {
+      // Allow reading refund requests if the user is a participant or an admin
+      allow read: if request.auth != null && 
+                  (
+                    // User is a participant
+                    resource.data.hostId == request.auth.uid || 
+                    resource.data.guestId == request.auth.uid ||
+                    // User is an admin - simplified check
+                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
+                  );
+      
+      // Allow any authenticated user to create refund requests
+      allow create: if request.auth != null;
+      
+      // Allow admins to update refund requests
+      allow update: if request.auth != null &&
+                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+                    
+      // No deletion allowed
+      allow delete: if false;
+    }
+    
+    // User Stats for Leaderboard
+    match /userStats/{userId} {
+      // Allow public read access to user stats for leaderboard
+      allow read;
+      
+      // Only allow write through admin functions
+      allow write: if request.auth != null && 
+                  get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+    
+    // Epic Games Account Links - track which Epic accounts are linked to which users
+    match /epicAccountLinks/{epicId} {
+      // Allow admins to read any Epic account link
+      allow read: if request.auth != null && 
+                 get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+      
+      // Allow users to read their own Epic account links
+      allow read: if request.auth != null && 
+                 resource.data.userId == request.auth.uid;
+      
+      // Allow users to create links for themselves
+      allow create: if request.auth != null && 
+                   request.resource.data.userId == request.auth.uid;
+      
+      // Allow users to delete their own links
+      allow delete: if request.auth != null && 
+                   resource.data.userId == request.auth.uid;
+      
+      // No updates allowed - must delete and recreate
+      allow update: if false;
+    }
+    
+    // Allow users to create and read their own withdrawal requests
+    match /withdrawalRequests/{requestId} {
+      // Allow authenticated users to create a withdrawal request for themselves
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+
+      // Allow users to read their own withdrawal requests
+      allow get, list: if request.auth != null && resource.data.userId == request.auth.uid;
+
+      // Allow admins to read and update any withdrawal request
+      allow get, list, update: if request.auth != null &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+    
+    // Site Earnings - Track fees and commissions
+    match /siteEarnings/{earningId} {
+      // Allow admins to read all site earnings
+      allow read: if request.auth != null && 
+                 get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+      
+      // Allow authenticated users to create earnings records (for tips, wager fees, etc.)
+      allow create: if request.auth != null &&
+                   (
+                     // Admin users can create earnings records
+                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true ||
+                     // Users can create earnings for valid types when they are the source
+                     (request.resource.data.sourceUserId == request.auth.uid &&
+                      request.resource.data.type in ['tip_fee', 'wager_fee', 'payment_fee'])
+                   );
+      
+      // No updates or deletes allowed for earnings records
+      allow update, delete: if false;
+    }
+
+    // User Inventory
+    match /userInventory/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null && 
+                          request.auth.uid == userId;
+    }
+
+    // User Cosmetics
+    match /userCosmetics/{userId} {
+      // Allow users to read their own cosmetics, or public read access for display purposes
+      allow read, get: if request.auth != null && request.auth.uid == userId;
+      allow get: if true; // Public read access to equipped cosmetics for display purposes
+      
+      // Allow users to create and update their own cosmetics
+      allow create, update: if request.auth != null && 
+                          request.auth.uid == userId;
+      
+      // Allow admins to read and write all cosmetics (for achievement rewards)
+      allow read, write: if request.auth != null && 
+                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // User Achievements
+    match /userAchievements/{userId} {
+      // Allow users to read their own achievements
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      // Allow users to create and update their own achievements
+      allow create, update: if request.auth != null && 
+                          request.auth.uid == userId;
+      
+      // Allow admins to read and write all achievements
+      allow read, write: if request.auth != null && 
+                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // Notifications (top-level collection)
+    match /notifications/{notificationId} {
+      // Allow users to read their own notifications
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      
+      // Allow users to update/delete their own notifications (mark as read, etc.)
+      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      
+      // Allow any authenticated user to create notifications (for achievement unlocks, etc.)
+      allow create: if request.auth != null;
+      
+      // Allow admins to read all notifications
+      allow read: if request.auth != null && 
+                 get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+    }
+
+    // Battlepass config
+    match /battlepass/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+    
+    // Creator Applications
+    match /creatorApplications/{applicationId} {
+      // Allow authenticated users to create applications for themselves
+      allow create: if request.auth != null && 
+                   request.resource.data.userId == request.auth.uid &&
+                   request.resource.data.status == 'pending';
+      
+      // Allow users to read their own applications
+      allow read: if request.auth != null && 
+                 resource.data.userId == request.auth.uid;
+      
+      // Allow admins to read and update all applications
+      allow read, update: if request.auth != null && 
+                         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+      
+      // No deletion allowed for applications
+      allow delete: if false;
+    }
+
+    // Public streamers
+    match /public_streamers/{streamerId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == streamerId;
+    }
+
+    // Global Chat
+    match /global_chat/{messageId} {
+      // Anyone can read global chat messages
+      allow read: if true;
+      
+      // Only authenticated users can create messages
+      allow create: if request.auth != null && 
+                     request.resource.data.userId == request.auth.uid &&
+                     // Ensure required fields are present
+                     request.resource.data.keys().hasAll(['userId', 'username', 'text', 'timestamp']) &&
+                     // Text must be non-empty and under 500 characters
+                     request.resource.data.text.size() > 0 &&
+                     request.resource.data.text.size() <= 500 &&
+                     // Username must match the authenticated user's display name
+                     exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+                     request.resource.data.username == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.displayName;
+      
+      // Only admins or message sender can delete messages
+      allow delete: if request.auth != null && 
+                     (
+                       resource.data.userId == request.auth.uid ||
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true
+                     );
+      
+      // No updates allowed - messages are immutable
+      allow update: if false;
+    }
+    
+    // Chat mutes - for muting users in global chat
+    match /chat_mutes/{userId} {
+      // Only admins can read mute records
+      allow read: if request.auth != null && 
+                 get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+      
+      // Only admins can create mute records
+      allow create: if request.auth != null &&
+                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true &&
+                    request.resource.data.userId == userId;
+      
+      // Only admins can delete mute records (to unmute)
+      allow delete: if request.auth != null &&
+                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true;
+      
+      // No updates allowed - delete and recreate if needed
+      allow update: if false;
+    }
+  }
+}

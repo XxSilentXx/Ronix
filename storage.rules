@@ -1,0 +1,31 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isMatchParticipant(wagerId) {
+      let doc = get(/databases/$(database)/documents/wagers/$(wagerId));
+      return doc.data.hostId == request.auth.uid ||
+             doc.data.guestId == request.auth.uid ||
+             (doc.data.participants != null &&
+              doc.data.participants.hasAny([request.auth.uid]));
+    }
+    
+    function isAdmin() {
+      return request.auth.token.admin == true;
+    }
+
+    match /match-results/{wagerId}/{fileName} {
+      // TEMPORARY: Allow any authenticated user to upload for debugging
+      // TODO: Restore participant checking once issue is resolved
+      allow write: if request.auth != null
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      // Allow any authenticated user to read for debugging
+      allow read: if request.auth != null;
+    }
+
+    // Deny all other access
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "projects": {
+    "default": "ronix-main"
+  },
+  "targets": {
+    "ronix-main": {
+      "hosting": {
+        "main": [
+          "ronix-main"
+        ]
+      }
+    },
+    "tokensite-6eef3": {
+      "hosting": {
+        "ronix-non-www": [
+          "ronix-gg"
+        ],
+        "ronix-www": [
+          "ronix-gg-site"
+        ],
+        "tokensite-6eef3": [
+          "https://tokensite-6eef3.web.app"
+        ],
+        "main": [
+          "tokensite-6eef3"
+        ],
+        "ronix-main": [
+          "ronix-main"
+        ],
+        "staging": [
+          "token-site-test"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

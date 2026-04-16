@@ -1,0 +1,213 @@
+.referral-banner {
+  position: fixed;
+  top: 60px;
+  left: 260px;
+  right: 0;
+  z-index: 1000;
+  background: linear-gradient(135deg, #A259F7 0%, #7B2CBF 100%);
+  border-bottom: 3px solid #6A1B9A;
+  font-family: 'Inter', sans-serif;
+  box-shadow: 0 4px 20px rgba(162, 89, 247, 0.3);
+  transition: left 0.25s cubic-bezier(.25,1.7,.45,.87);
+}
+
+.banner-content {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  position: relative;
+}
+
+.banner-icon {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.banner-info {
+  flex: 1;
+  color: #ffffff;
+}
+
+.banner-info h3 {
+  font-family: 'Poppins', sans-serif;
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.banner-info p {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.4;
+  opacity: 0.95;
+}
+
+.inline-icon {
+  font-size: 1.1rem;
+  margin-right: 4px;
+}
+
+.referral-benefits {
+  font-weight: 600;
+  margin-bottom: 8px !important;
+}
+
+.referral-details {
+  margin-top: 8px;
+}
+
+.referral-code-display {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-family: 'Poppins', sans-serif;
+  font-weight: 700;
+  font-size: 0.9rem;
+  letter-spacing: 1px;
+}
+
+.dismiss-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #ffffff;
+  padding: 8px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.2rem;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.dismiss-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Banner States */
+.banner-loading h3,
+.banner-error h3,
+.banner-success h3,
+.banner-default h3 {
+  color: #ffffff;
+}
+
+.banner-loading p,
+.banner-error p,
+.banner-success p,
+.banner-default p {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.banner-error {
+  opacity: 0.8;
+}
+
+/* Banner Features */
+.banner-features {
+  display: flex;
+  justify-content: center;
+  gap: 30px;
+  padding: 12px 20px 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.feature {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.feature-icon {
+  font-size: 1rem;
+  color: #00FFD0;
+}
+
+/* Sidebar States */
+.referral-banner.sidebar-collapsed {
+  left: 70px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .referral-banner {
+    position: static;
+    left: 0;
+    right: auto;
+  }
+  
+  .banner-content {
+    flex-direction: column;
+    text-align: center;
+    gap: 15px;
+    padding: 16px 15px;
+  }
+  
+  .banner-icon {
+    order: -1;
+  }
+  
+  .dismiss-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+  }
+  
+  .banner-info h3 {
+    font-size: 1.2rem;
+    justify-content: center;
+  }
+  
+  .banner-features {
+    flex-direction: column;
+    gap: 12px;
+    align-items: center;
+  }
+  
+  .feature {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .banner-content {
+    padding: 12px 10px;
+  }
+  
+  .banner-info h3 {
+    font-size: 1.1rem;
+  }
+  
+  .banner-info p {
+    font-size: 0.9rem;
+  }
+  
+  .banner-features {
+    padding: 10px 15px 12px;
+  }
+  
+  .feature {
+    font-size: 0.85rem;
+  }
+} 

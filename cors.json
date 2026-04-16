@@ -1,0 +1,13 @@
+[
+    {
+      "origin": [
+        "http://localhost:3000",
+        "https://tokensite-6eef3.web.app",
+        "https://tokensite-6eef3.firebaseapp.com",
+        "https://ronix.gg"
+      ],
+      "method": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "maxAgeSeconds": 3600,
+      "responseHeader": ["Content-Type", "Authorization", "x-goog-meta-*"]
+    }
+  ]
